@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-latest
@@ -52,6 +55,26 @@ jobs:
           name: Harbor-ipa
           path: xtool/Harbor.ipa
           if-no-files-found: error
+
+      - name: Publish IPA as a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="build-${{ github.run_number }}"
+          gh release create "$TAG" xtool/Harbor.ipa build.log \
+            --title "Harbor for iPhone (build ${{ github.run_number }})" \
+            --notes "Unsigned IPA built with xtool from ${{ github.sha }}. Install with Sideloadly or AltStore."
+          echo "::notice title=IPA size::$(stat -f%z xtool/Harbor.ipa) bytes"
+
+      - name: Report errors
+        if: failure()
+        run: |
+          grep -E "error:|warning: .*deprecated" build.log | head -40 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done || true
+          gh release create "failed-${{ github.run_number }}" build.log --prerelease --title "Failed build ${{ github.run_number }}" --notes "build log" || true
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Upload build log
         if: always()

@@ -43,6 +43,31 @@ jobs:
           set -o pipefail
           xtool dev build --ipa -c release 2>&1 | tee build.log
 
+      - name: Remove static libraries xtool copied into Frameworks
+        # MPVKit ships static xcframeworks (already linked into the app binary).
+        # xtool misreads the fat static archives as dynamic frameworks and embeds them,
+        # which breaks signing in Sideloadly/AltStore. Drop any that aren't real dylibs.
+        run: |
+          set -e
+          rm -rf ipa-work && mkdir ipa-work && cd ipa-work
+          unzip -q ../xtool/Harbor.ipa
+          APP=Payload/Harbor.app
+          if [ -d "$APP/Frameworks" ]; then
+            for fw in "$APP"/Frameworks/*.framework; do
+              bin="$fw/$(basename "$fw" .framework)"
+              if file "$bin" | grep -q "ar archive"; then
+                echo "removing static $(basename "$fw")"
+                rm -rf "$fw"
+              fi
+            done
+            rmdir "$APP/Frameworks" 2>/dev/null || true
+          fi
+          echo "--- linked libraries ---"
+          otool -L "$APP/Harbor"
+          rm -f ../xtool/Harbor.ipa
+          zip -qry ../xtool/Harbor.ipa Payload
+          cd .. && rm -rf ipa-work
+
       - name: Check IPA
         run: |
           ls -la xtool

@@ -1,0 +1,61 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick newest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
+          echo "Using $XC"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+          swift --version
+          xcrun -sdk iphoneos -show-sdk-path
+
+      - name: Install xtool
+        run: |
+          brew install xtool-org/tap/xtool
+          xtool --help | head -5
+
+      - name: Cache SwiftPM packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            .build/artifacts
+            .build/checkouts
+            .build/repositories
+          key: spm-${{ hashFiles('Package.swift', 'Package.resolved') }}
+
+      - name: Build IPA with xtool
+        run: |
+          set -o pipefail
+          xtool dev build --ipa -c release 2>&1 | tee build.log
+
+      - name: Check IPA
+        run: |
+          ls -la xtool
+          unzip -l xtool/Harbor.ipa | head -40
+          unzip -l xtool/Harbor.ipa | tail -1
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Harbor-ipa
+          path: xtool/Harbor.ipa
+          if-no-files-found: error
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
